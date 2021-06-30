@@ -38,6 +38,7 @@ def parse_metafits(filename):
     hdr['HISTORY'] = history
     return hdr
 
+
 def generate_filelist_from_metafits(filename):
     """ Generate a list of data files from metafits file 
     
@@ -56,11 +57,14 @@ def generate_filelist_from_metafits(filename):
         print("Warning: Number of coarse channels does not match number of dat files.")
     return fl
 
+
 class MwaVcsReader(object):
     """ A file reader for MWA VCS data.
     
     Args:
         filename_or_filelist (str/list): Name of metafits file to open, or list of metafits files
+                                         This will treat all of these as one 'sequence' and concatenate
+                                         together as if one big stream.
         N_time_per_frame (int): Number of time samples to read in each frame. 
                                 Should evenly divide N_time_per_file
         N_time_per_file (int): Total number of time samples in file (default is 10,000)
@@ -78,11 +82,12 @@ class MwaVcsReader(object):
         
         self.obs_count = 0
         self.frame_count = 0
+        
+        # Currently hardcoded values, 10,000 timesteps per file (one second)
         self.n_frame_per_obs = 100
+        self.n_time_per_frame = 100
         
         self._open_next_obs()
-        
-        self.header = self._read_header()
         
         itensor = self.header['_tensor']
         
@@ -93,14 +98,15 @@ class MwaVcsReader(object):
         
         # Here 'gulp' is how much to read from a single file
         # Whereas 'frame' is how big the full array is (includes N_coarse_chan axis)
-        self.dat_gulp_shape = list(self.frame_shape[2:]) + [2,]
-        self.dat_gulp_size  = np.prod(self.dat_gulp_shape) * (self.dtype.itemsize // 2) // 2 # We will unpack 4-bit ci4 to 8-bit ci8
+        self.dat_gulp_shape = list(self.frame_shape[2:])
+        self.dat_gulp_size  = np.prod(self.dat_gulp_shape) * (self.dtype.itemsize // 2) # We will unpack 4-bit ci4 to 8-bit ci8
         
         # Create a temporary contiguous array to reuse.
         # Unpacks using numbits to int8, extra axis for real/imag
-        self._data  = np.ndarray(shape=list(self.frame_shape[1:]) + [2,], dtype='int8')
+        self._data  = bf.ndarray(np.ndarray(shape=list(self.frame_shape[1:]), dtype=self.dtype), dtype='ci8')
 
     def _open_dat_files(self, idx):
+        """ Internal method to open file handlers for dat file list"""
         # Generate a list of datafiles
         self.current_datlist = generate_filelist_from_metafits(self.obs_list[idx])
         
@@ -110,6 +116,7 @@ class MwaVcsReader(object):
             self.current_datobjs.append(open(fn, 'rb'))
     
     def _close_dat_files(self):
+        """ Internal method to close any open dat files """
         for fh in self.current_datobjs:
             fh.close()    
         self.frame_count = 0
@@ -121,14 +128,14 @@ class MwaVcsReader(object):
         Currently there are some hardcoded values -- could use header callback to avoid this.
         """
         
-        mf_header = parse_metafits(self.obs_list[0])
+        mf_header = parse_metafits(self.obs_list[self.obs_count])
         N_coarse_chan = len(self.current_datlist)
         N_fine_chan   = 128
         N_station     = mf_header['NINPUTS'] // 2
         N_pol         = 2
-        N_frame       = self.n_frame_per_obs
+        N_time        = self.n_time_per_frame
         
-        t0 = Time(mf_header['GPSTIME'], format='gps')
+        t0 = Time(mf_header['GPSTIME'], format='gps').unix
         dt = 100e-6
         
         f0_coarse = mf_header['FREQCENT'] - mf_header['BANDWDTH'] / 2
@@ -136,18 +143,18 @@ class MwaVcsReader(object):
         df_fine   = 0.01   # 10 kHz fine channel
            
         self.header = {
-            '_tensor': {'dtype':  'ci8',  # Note data are 4-bit, but bifrost doesn't support ci4
-                         'shape':  [-1,     N_coarse_chan,    N_frame,    N_fine_chan,    N_station, N_pol],
+            '_tensor': {'dtype':  'ci8',  # Note raw data are 4-bit, but bifrost doesn't support ci4 so we use ci9=8
+                         'shape':  [-1,     N_coarse_chan,    N_time,    N_fine_chan,    N_station, N_pol],
                          'labels': ['time', 'coarse_channel', 'frame',   'fine_channel', 'station', 'pol'],
                          'units':  ['s',    'MHz',             's',       'MHz',   '',     ''],
-                         'scales': [[t0, dt * N_frame],
+                         'scales': [[t0, dt * N_time],
                                     [f0_coarse, df_coarse], 
                                     [0, dt],
                                     [0, df_fine],
                                     [0,0], 
                                     [0,0]]
                          },
-             'name': mf_header['FILENAME'],
+             'name': mf_header['FILENAME'] + '_'+ str(self.obs_count),
              'telescope': mf_header['TELESCOP'],       
              'ra': mf_header['RA'],
              'dec': mf_header['DEC'],
@@ -156,27 +163,32 @@ class MwaVcsReader(object):
         return self.header
     
     def _open_next_obs(self):
-        print("%i/%i: opening %s" % (self.obs_count+1, self.n_obs, self.obs_list[self.obs_count]))
+        """ Internal method to open next observation """
+        #print("%i/%i: opening %s" % (self.obs_count+1, self.n_obs, self.obs_list[self.obs_count]))
+        
+        
         if self.obs_count > 0:
             self._close_dat_files()
-        self._open_dat_files(idx=self.obs_count)            
+        self._open_dat_files(idx=self.obs_count)  
+        self.header = self._read_header()
         self.obs_count += 1
 
     def _read_data(self):
-        #print("here", self.frame_count)
+        """ Internal method to read next data frame """
         
         if self.frame_count < self.n_frame_per_obs:
             for ii, fh in enumerate(self.current_datobjs):
                 d_packed = np.fromfile(fh,  count=self.dat_gulp_size, dtype='int8')
-                d_unpacked = numbits.unpack(d_packed, 4).reshape(self.dat_gulp_shape)
+                d_unpacked = numbits.unpack(d_packed, 4).view(self.dtype).reshape(self.dat_gulp_shape)
                 self._data[ii] = d_unpacked
             self.frame_count += 1
             return self._data
         else:
-            return np.ndarray(shape=0, dtype='int8')
+            return np.ndarray(shape=0, dtype=self.dtype)
     
     def read_frame(self):
-        #print("Reading...")
+        """ Read next frame of data """
+        print("Reading frame %i ..." % self.frame_count)
         d = self._read_data()
         if d.size == 0 and self.frame_count == self.n_frame_per_obs:
             if self.obs_count == self.n_obs:
@@ -192,11 +204,50 @@ class MwaVcsReader(object):
         d = self.read_frame()
         return d
 
+    def close(self):
+        """ Close all open files """
+        self._close_dat_files()
+        
     def __enter__(self):
         return self
 
-    def close(self):
-        self._close_dat_files()
-
     def __exit__(self, type, value, tb):
         self.close()
+
+        
+class MwaVcsReadBlock(bfp.SourceBlock):
+    def __init__(self, filelist, gulp_nframe=1,  *args, **kwargs):
+        super(MwaVcsReadBlock, self).__init__(filelist, gulp_nframe, *args, **kwargs)
+
+    def create_reader(self, filename):
+        print(filename)
+        # Do a lookup on bifrost datatype to numpy datatype
+        return MwaVcsReader(filename)
+
+    def on_sequence(self, ireader, filename):
+        ohdr = ireader.header
+        return [ohdr]
+
+    def on_data(self, reader, ospans):
+        indata = reader.read()
+        odata  = ospans[0].data
+        #print(indata.shape, odata.shape)
+        if np.prod(indata.shape) == np.prod(odata.shape[1:]):
+            ospans[0].data[0] = indata
+            return [1]
+        else:
+            # EOF or truncated block
+            return [0]
+
+
+def read_vcs_block(filename, *args, **kwargs):
+    """ Block for reading binary data from file and streaming it into a bifrost pipeline
+    Args:
+        filenames (list): A list of filenames to open
+        header_callback (method): A function that converts from PSRDADA header into a 
+                                  bifrost header.
+        gulp_size (int): Number of elements in a gulp (i.e. sub-array size)
+        gulp_nframe (int): Number of frames in a gulp. (Ask Ben / Miles for good explanation)
+        dtype (bifrost dtype string): dtype, e.g. f32, cf32
+    """
+    return MwaVcsReadBlock(filename, *args, **kwargs)
