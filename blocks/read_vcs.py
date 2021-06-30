@@ -60,7 +60,7 @@ class MwaVcsReader(object):
     """ A file reader for MWA VCS data.
     
     Args:
-        filename_or_list (str/list): Name of metafits file to open, or list of metafits files
+        filename_or_filelist (str/list): Name of metafits file to open, or list of metafits files
         N_time_per_frame (int): Number of time samples to read in each frame. 
                                 Should evenly divide N_time_per_file
         N_time_per_file (int): Total number of time samples in file (default is 10,000)
@@ -73,7 +73,7 @@ class MwaVcsReader(object):
             self.obs_list = [filename_or_filelist,]
             self.n_obs    = 1
         else:
-            self.obs_list = filename_or_list
+            self.obs_list = filename_or_filelist
             self.n_obs    = len(filename_or_filelist)
         
         self.obs_count = 0
@@ -85,8 +85,6 @@ class MwaVcsReader(object):
         self.header = self._read_header()
         
         itensor = self.header['_tensor']
-        
-        
         
         self.dtype          = string2numpy(itensor['dtype'])
         self.frame_shape    = np.copy(itensor['shape'])
@@ -113,7 +111,8 @@ class MwaVcsReader(object):
     
     def _close_dat_files(self):
         for fh in self.current_datobjs:
-            fh.close()        
+            fh.close()    
+        self.frame_count = 0
             
     def _read_header(self):
         """ Read metafits header and convert to bifrost header.
@@ -197,7 +196,7 @@ class MwaVcsReader(object):
         return self
 
     def close(self):
-        pass
+        self._close_dat_files()
 
     def __exit__(self, type, value, tb):
         self.close()
