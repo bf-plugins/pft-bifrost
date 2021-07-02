@@ -9,6 +9,8 @@ import bifrost.pipeline as bfp
 from bifrost.dtype import string2numpy
 import numbits
 
+from loguru import logger
+
 def parse_metafits(filename):
     """ Parse a metafits file and return a python dictionary 
     
@@ -54,7 +56,7 @@ def generate_filelist_from_metafits(filename):
     fl = sorted(glob.glob(filename.replace('_metafits.fits', '*.dat')))
     
     if len(fl) != n_coarse_chan:
-        print("Warning: Number of coarse channels does not match number of dat files.")
+        logger.warn("Warning: Number of coarse channels does not match number of dat files.")
     return fl
 
 
@@ -164,9 +166,7 @@ class MwaVcsReader(object):
     
     def _open_next_obs(self):
         """ Internal method to open next observation """
-        #print("%i/%i: opening %s" % (self.obs_count+1, self.n_obs, self.obs_list[self.obs_count]))
-        
-        
+        logger.info("%i/%i: opening %s" % (self.obs_count+1, self.n_obs, self.obs_list[self.obs_count]))
         if self.obs_count > 0:
             self._close_dat_files()
         self._open_dat_files(idx=self.obs_count)  
@@ -188,14 +188,14 @@ class MwaVcsReader(object):
     
     def read_frame(self):
         """ Read next frame of data """
-        print("Reading frame %i ..." % self.frame_count)
+        logger.debug("Reading frame %i ..." % self.frame_count)
         d = self._read_data()
         if d.size == 0 and self.frame_count == self.n_frame_per_obs:
             if self.obs_count == self.n_obs:
-                print("EoDS")
+                logger.info("End of file data stream")
                 d = np.array([0]) # End of data stream
             else:
-                print("Opening next obs")
+                logger.debug("Opening next observation")
                 self._open_next_obs()
                 d = self._read_data()
         return d
@@ -220,8 +220,7 @@ class MwaVcsReadBlock(bfp.SourceBlock):
         super(MwaVcsReadBlock, self).__init__(filelist, gulp_nframe, *args, **kwargs)
 
     def create_reader(self, filename):
-        print(filename)
-        # Do a lookup on bifrost datatype to numpy datatype
+        logger.info(f"Reading {filename}...")
         return MwaVcsReader(filename)
 
     def on_sequence(self, ireader, filename):
@@ -231,7 +230,7 @@ class MwaVcsReadBlock(bfp.SourceBlock):
     def on_data(self, reader, ospans):
         indata = reader.read()
         odata  = ospans[0].data
-        #print(indata.shape, odata.shape)
+        logger.debug("MWA VCS reader on_data called, reading data block")
         if np.prod(indata.shape) == np.prod(odata.shape[1:]):
             ospans[0].data[0] = indata
             return [1]
@@ -244,10 +243,5 @@ def read_vcs_block(filename, *args, **kwargs):
     """ Block for reading binary data from file and streaming it into a bifrost pipeline
     Args:
         filenames (list): A list of filenames to open
-        header_callback (method): A function that converts from PSRDADA header into a 
-                                  bifrost header.
-        gulp_size (int): Number of elements in a gulp (i.e. sub-array size)
-        gulp_nframe (int): Number of frames in a gulp. (Ask Ben / Miles for good explanation)
-        dtype (bifrost dtype string): dtype, e.g. f32, cf32
     """
     return MwaVcsReadBlock(filename, *args, **kwargs)
