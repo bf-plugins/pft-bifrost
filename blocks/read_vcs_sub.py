@@ -54,9 +54,10 @@ def generate_filelist_from_metafits(filename):
     hdr = parse_metafits(filename)
     n_coarse_chan = len(hdr['CHANNELS'].split(','))
     fl = sorted(glob.glob(filename.replace('_metafits.fits', '*.dat')))
-    
+    fl = fl[:12]
+ 
     if len(fl) != n_coarse_chan:
-        logger.warn("Warning: Number of coarse channels does not match number of dat files.")
+        logger.warning("Warning: Number of coarse channels does not match number of dat files.")
     return fl
 
 
