@@ -4,7 +4,7 @@
 A pipeline to convert MWA VCS data into filterbank files.
 """
 import bifrost as bf
-from blocks.read_vcs import read_vcs_block
+from blocks.read_vcs2 import read_vcs_block
 from blocks.detect import DetectBlock
 from blocks.print_stuff import print_stuff_block
 from logger import setup_logger
