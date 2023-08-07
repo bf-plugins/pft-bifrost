@@ -119,8 +119,7 @@ class MwaVcsReader(object):
             d = self.vcs.read_second(self.t0_gps + self.frame_count, 1, self.coarse_channel_idx)
             d = bf.ndarray(d.reshape(self._data_read_shape)).view('ci8').reshape(self._data_read_shape[:-1]) 
             self.frame_count += 1
-        if self.frame_count == self.n_block_per_obs:
-            if self.obs_count == self.n_obs:
+        if self.frame_count == self.N_frame:
                 logger.info("End of file data stream")
                 d = np.array([0]) # End of data stream
             else:
