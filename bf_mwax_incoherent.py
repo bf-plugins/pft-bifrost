@@ -4,18 +4,19 @@
 A pipeline to convert MWA VCS data into filterbank files.
 """
 import bifrost as bf
-from blocks.read_vcs2 import read_vcs_block
+from blocks.read_vcs_mwalib import read_vcs_block
 from blocks.detect import DetectBlock
 from blocks.print_stuff import print_stuff_block
 from logger import setup_logger
+import glob
 
-setup_logger(filter="blocks.read_vcs", level="DEBUG")
+setup_logger(filter="blocks.read_vcs_mwalib", level="DEBUG")
 
 if __name__ == "__main__":
-    fn = '/datax2/users/dancpr/2023.jun-tian-bifrost-mwa/1369756816.metafits'
-    filelist = [fn, ]
-    scale_factor = 1.0 / 2**13
-    print(f"SCALE FACTOR: {scale_factor}")
+    metafits = "/datax2/users/dancpr/2023.jun-tian-bifrost-mwa/1369756816.metafits"
+    filelist = sorted(glob.glob('/datax2/users/dancpr/2023.jun-tian-bifrost-mwa/1369756816_*.sub'))
+
+    filelist = [[metafits, filelist], ]
     
     # Hardcoded values 
     coarse_chan_bw   = 1.28e6
@@ -36,10 +37,12 @@ if __name__ == "__main__":
     
 
     # Data arrive as ['time', 'coarse_channel', 'station', 'pol', 'sample']
-    b_vcs    = read_vcs_block(filelist, start_chan=start_chan, stop_chan=stop_chan, space='cuda_host')
+    b_vcs    = read_vcs_block(filelist, coarse_chan=0, space='cuda_host')
+    b_vcs    = bf.views.merge_axes(b_vcs, 'time', 'block', label='time')
+    print_stuff_block(b_vcs, n_gulp_per_print=10)
     b_gpu    = bf.blocks.copy(b_vcs, space='cuda')
-    
-    with bf.block_scope(fuse=False, gpu=0):
+
+    with bf.block_scope(fuse=True, gpu=0):
         b_gpu = bf.views.split_axis(b_gpu, 'sample', n=N_chan, label='fine_time')
         b_gpu = bf.blocks.fft(b_gpu, axes='fine_time', axis_labels='fine_channel', apply_fftshift=True)
         b_gpu = DetectBlock(b_gpu, mode='stokes_i')
@@ -50,10 +53,12 @@ if __name__ == "__main__":
     b_cpu = bf.blocks.copy(b_gpu, space='system')
     b_cpu = bf.views.merge_axes(b_cpu, 'time', 'sample', label='time')
     b_cpu = bf.views.merge_axes(b_cpu, 'coarse_channel', 'fine_channel', label='freq')
+    
     print_stuff_block(b_cpu, n_gulp_per_print=10)
     
     # Write to sigproc. Need [time pol freq] axes
-    bf.blocks.write_sigproc(b_cpu, path='./data/')
+    #bf.blocks.write_sigproc(b_cpu, path='./data/')
+
     
     print("Running pipeline")
     pipeline = bf.get_default_pipeline()
