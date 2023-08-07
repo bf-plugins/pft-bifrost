@@ -114,8 +114,8 @@ class MwaVcsReader(object):
     
     def read_frame(self):
         """ Read next frame of data """
-        logger.debug(f"Reading frame {self.frame_count}  / {self.N_frame}...")
-        if self.frame_count <= self.N_frame:
+        logger.debug(f"Reading frame {self.frame_count + 1}  / {self.N_frame}...")
+        if self.frame_count < self.N_frame:
             d = self.vcs.read_second(self.t0_gps + self.frame_count, 1, self.coarse_channel_idx)
             d = bf.ndarray(d.reshape(self._data_read_shape)).view('ci8').reshape(self._data_read_shape[:-1]) 
             self.frame_count += 1

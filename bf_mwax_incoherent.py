@@ -39,8 +39,8 @@ if __name__ == "__main__":
     # Data arrive as ['time', 'coarse_channel', 'station', 'pol', 'sample']
     b_vcs    = read_vcs_block(filelist, coarse_chan=0, space='cuda_host')
     b_vcs    = bf.views.merge_axes(b_vcs, 'time', 'block', label='time')
-    print_stuff_block(b_vcs, n_gulp_per_print=10)
-    b_gpu    = bf.blocks.copy(b_vcs, space='cuda')
+    #print_stuff_block(b_vcs, n_gulp_per_print=10)
+    b_gpu    = bf.blocks.copy(b_vcs, space='cuda', gulp_nframe=1)
 
     with bf.block_scope(fuse=True, gpu=0):
         b_gpu = bf.views.split_axis(b_gpu, 'sample', n=N_chan, label='fine_time')
@@ -54,10 +54,10 @@ if __name__ == "__main__":
     b_cpu = bf.views.merge_axes(b_cpu, 'time', 'sample', label='time')
     b_cpu = bf.views.merge_axes(b_cpu, 'coarse_channel', 'fine_channel', label='freq')
     
-    print_stuff_block(b_cpu, n_gulp_per_print=10)
+    print_stuff_block(b_cpu, n_gulp_per_print=1)
     
     # Write to sigproc. Need [time pol freq] axes
-    #bf.blocks.write_sigproc(b_cpu, path='./data/')
+    bf.blocks.write_sigproc(b_cpu, path='./data/')
 
     
     print("Running pipeline")
