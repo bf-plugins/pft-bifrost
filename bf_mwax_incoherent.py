@@ -1,7 +1,7 @@
 """ 
-# vcs_pipeline.py
+# bf_mwax_incoherent.py
 
-A pipeline to convert MWA VCS data into filterbank files.
+A pipeline to convert MWAX VCS data into filterbank files.
 """
 import bifrost as bf
 from blocks.read_vcs_mwalib import read_vcs_block
@@ -16,7 +16,9 @@ if __name__ == "__main__":
     metafits = "/datax2/users/dancpr/2023.jun-tian-bifrost-mwa/1369756816.metafits"
     filelist = sorted(glob.glob('/datax2/users/dancpr/2023.jun-tian-bifrost-mwa/1369756816_*.sub'))
 
-    filelist = [[metafits, filelist], ]
+    filelist = [
+        [metafits, filelist], 
+        ]
     
     # Hardcoded values 
     coarse_chan_bw   = 1.28e6
@@ -26,9 +28,6 @@ if __name__ == "__main__":
     # note 64000 = 2^9 x 5^3
     N_chan  = 125        # 10.24 kHz
     N_int   = 4          # 4 / 10.24 kHz = 0.390625 ms
-
-    start_chan = 110
-    stop_chan  = start_chan + 12 - 1
     
     try:
         assert N_samp_per_block % (N_chan * N_int) == 0
@@ -63,7 +62,7 @@ if __name__ == "__main__":
     print("Running pipeline")
     pipeline = bf.get_default_pipeline()
     pipeline.shutdown_on_signals()
-    pipeline.dot_graph().render('vcs_pipeline_graph.log')
+    pipeline.dot_graph().render('bf_mwax_incoherent.log')
     pipeline.run()
 
 
