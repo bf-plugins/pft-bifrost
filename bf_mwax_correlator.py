@@ -1,12 +1,15 @@
 """ 
-# bf_mwax_incoherent.py
+# bf_mwax_correlator.py
 
-A pipeline to convert MWAX VCS data into filterbank files.
+A pipeline to run tensor core correlator on MWAX data
 """
 import bifrost as bf
 from blocks.read_vcs_mwalib import read_vcs_block
 from blocks.detect import DetectBlock
 from blocks.print_stuff import print_stuff_block
+from blocks.quantize import quantize
+from blocks.tcc_correlator import tensor_core_correlator
+from blocks.h5write import h5write_block
 from logger import setup_logger
 import glob
 
@@ -23,6 +26,7 @@ if __name__ == "__main__":
     # Hardcoded values 
     coarse_chan_bw   = 1.28e6
     N_samp_per_block = 64000
+    scale_factor = 1.0 / 2**13
 
     # Set desired channel and time integration
     # note 64000 = 2^9 x 5^3
@@ -43,21 +47,18 @@ if __name__ == "__main__":
 
     with bf.block_scope(fuse=True, gpu=0):
         b_gpu = bf.views.split_axis(b_gpu, 'sample', n=N_chan, label='fine_time')
+        b_gpu = bf.views.split_axis(b_gpu, 'sample', n=16, label='tcc_block')
         b_gpu = bf.blocks.fft(b_gpu, axes='fine_time', axis_labels='fine_channel', apply_fftshift=True)
-        print_stuff_block(b_gpu, n_gulp_per_print=10)
-        b_gpu = DetectBlock(b_gpu, mode='stokes_i')
-        b_gpu = bf.blocks.reduce(b_gpu, axis='station')
-        b_gpu = bf.blocks.reduce(b_gpu, factor=N_int, axis='sample')
-        b_gpu = bf.views.delete_axis(b_gpu, axis='station')
-        b_gpu = bf.blocks.transpose(b_gpu, ['time', 'sample', 'pol', 'coarse_channel', 'fine_channel'])
+        b_gpu = quantize(b_gpu, 'ci8', scale=scale_factor)
+        b_gpu = bf.blocks.transpose(b_gpu, ['time', 'coarse_channel', 'fine_channel', 'sample', 'station', 'pol', 'tcc_block'])
+        b_gpu = bf.views.merge_axes(b_gpu, 'coarse_channel', 'fine_channel', label='freq')
+        b_gpu = tensor_core_correlator(b_gpu)
+        #print_stuff_block(b_gpu, n_gulp_per_print=1)
+
     b_cpu = bf.blocks.copy(b_gpu, space='system')
-    b_cpu = bf.views.merge_axes(b_cpu, 'time', 'sample', label='time')
-    b_cpu = bf.views.merge_axes(b_cpu, 'coarse_channel', 'fine_channel', label='freq')
-    
-    print_stuff_block(b_cpu, n_gulp_per_print=1)
-    
-    # Write to sigproc. Need [time pol freq] axes
-    bf.blocks.write_sigproc(b_cpu, path='./data/')
+
+    # Write to disk
+    h5write_block(b_cpu, outdir='./data', n_int_per_file=48)
 
     
     print("Running pipeline")

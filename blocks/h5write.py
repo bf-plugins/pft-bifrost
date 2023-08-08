@@ -29,9 +29,9 @@ class H5Write(bf.pipeline.SinkBlock):
         self._meta['source_name'] = ihdr['name']
         self._meta['ra']          = ihdr['ra']
         self._meta['dec']         = ihdr['ra']
-        self._meta['labels']      = map(str, ihdr['_tensor']['labels'])
-        self._meta['units']       = map(str, ihdr['_tensor']['units'])
-        self._meta['scales']      = map(list, ihdr['_tensor']['scales'])
+        self._meta['labels']      = list(map(str, ihdr['_tensor']['labels']))
+        self._meta['units']       = list(map(str, ihdr['_tensor']['units']))
+        self._meta['scales']      = list(map(list, ihdr['_tensor']['scales']))
     
         self.dshape = [self.n_int_per_file,] + iseq.header['_tensor']['shape'][1:]
         self.dtype = bf.dtype.string2numpy(iseq.header['_tensor']['dtype'])
@@ -51,7 +51,8 @@ class H5Write(bf.pipeline.SinkBlock):
         self.filename = os.path.join(self.outdir, fn)
         print("Creating %s" % self.filename)
         self.fh = h5py.File(self.filename, 'w') 
-        self.fh.create_dataset('data', shape=self.dshape, dtype=self.dtype)
+        # WAR HACK: manually set datatype
+        self.fh.create_dataset('data', shape=self.dshape, dtype='complex64')
         
         file_metadata = self.fh.attrs
         
@@ -71,10 +72,15 @@ class H5Write(bf.pipeline.SinkBlock):
     def on_data(self, ispan):
         if self.data_idx % self.n_int_per_file == 0 and self.data_idx > 0:
             self._create_new_h5()
-        if self.dtype is np.complex64:
-            d_c64 =  np.array(ispan.data).view('complex64')
-        else:
-            d_c64 = np.array(ispan.data).astype('float32')
+        #if self.dtype is np.complex64:
+        #    d_c64 =  np.array(ispan.data).view('complex64')
+        #else:
+        #    d_c64 = np.array(ispan.data).astype('float32')
+
+        #WAR - cast data to float64
+        d_c64 = np.zeros_like(ispan.data, dtype='complex64')
+        d_c64.real = ispan.data['re']
+        d_c64.imag = ispan.data['im']
 
         start_idx = self.data_idx % self.n_int_per_file
         stop_idx  = start_idx + ispan.data.shape[0]
